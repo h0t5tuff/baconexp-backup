@@ -1,0 +1,7 @@
+# Holds an API token - never commit.
+config.env
+
+# Runtime state and backup data.
+state/
+backups
+__pycache__/
