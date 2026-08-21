@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Show the state of the baconexp wiki backups: last run, contents, schedule, health."""
+
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent
+LOG = PROJECT_DIR / "state" / "cron.log"
+
+
+def backup_root():
+    """Read BACKUP_ROOT from the config next to this script."""
+    cfg = PROJECT_DIR / "config.env"
+    if cfg.exists():
+        for line in cfg.read_text().splitlines():
+            if line.strip().startswith("BACKUP_ROOT="):
+                return Path(line.split("=", 1)[1].strip())
+    return PROJECT_DIR / "backups"
+
+
+ROOT = backup_root()
+STALE_DAYS = 8          # weekly job; more than this means a run was missed
+
+G, Y, R, B, X = "\033[32m", "\033[33m", "\033[31m", "\033[1m", "\033[0m"
+if not sys.stdout.isatty():
+    G = Y = R = B = X = ""
+
+
+def human(n):
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def tree_size(p):
+    return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
+
+def main():
+    print(f"\n{B}baconexp wiki backup{X}")
+    if not ROOT.exists():
+        sys.exit(f"{R}RAID path {ROOT} not present - is the drive mounted?{X}")
+
+    latest = ROOT / "latest"
+    if not latest.exists():
+        sys.exit(f"{R}No 'latest' backup found under {ROOT}.{X}")
+    target = latest.resolve()
+
+    # Age of the most recent run, taken from its directory stamp.
+    m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})Z", target.name)
+    age_days = None
+    if m:
+        when = datetime.strptime(f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)}",
+                                 "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - when
+        age_days = age.days
+        local = when.astimezone()
+        hrs = age.seconds // 3600
+        colour = G if age.days < STALE_DAYS else R
+        print(f"  last run   {colour}{local:%a %d %b %Y, %H:%M} "
+              f"({age.days}d {hrs}h ago){X}")
+    print(f"  location   {target}")
+
+    spaces = [d for d in target.iterdir() if d.is_dir() and not d.name.startswith("_")]
+    pages = len(list(target.rglob("index.html")))
+    files = [f for f in target.rglob("*") if f.is_file() and "_files" in f.parts]
+    print(f"  contents   {len(spaces)} spaces, {pages} pages, {len(files)} attachments, "
+          f"{human(tree_size(target))}")
+
+    archives = sorted(ROOT.glob("archives/baconexp-*.tar.gz"))
+    if archives:
+        total = sum(a.stat().st_size for a in archives)
+        print(f"  archives   {len(archives)} tarballs, {human(total)} "
+              f"(newest {archives[-1].name})")
+    else:
+        print(f"  archives   {Y}none{X}")
+
+    # Schedule
+    try:
+        cron = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        cron = ""
+    entries = [l for l in cron.splitlines()
+               if "baconexp-backup" in l and not l.strip().startswith("#")]
+    if entries:
+        nxt = datetime.now().replace(hour=22, minute=0, second=0, microsecond=0)
+        while nxt.weekday() != 4 or nxt <= datetime.now():     # Friday
+            nxt += timedelta(days=1)
+        word = "entry" if len(entries) == 1 else f"{R}{len(entries)} duplicate entries{X}"
+        print(f"  schedule   {G}automatic{X} - cron {word}; "
+              f"next run {nxt:%a %d %b, %H:%M}")
+    else:
+        print(f"  schedule   {R}NOT automatic - no cron entry installed{X}")
+
+    # Health from the last logged run
+    if LOG.exists() and LOG.stat().st_size:
+        text = LOG.read_text(errors="replace")
+        runs = text.count("Backup complete.")
+        last_totals = None
+        for line in text.splitlines():
+            if "Totals:" in line:
+                last_totals = line.split("Totals:", 1)[1].strip()
+        print(f"  cron log   {LOG} ({runs} completed run(s))")
+        if last_totals:
+            print(f"             {last_totals}")
+        tail_err = [l for l in text.splitlines()[-40:]
+                    if "FATAL" in l or "Traceback" in l]
+        if tail_err:
+            print(f"  {R}errors     {tail_err[-1][:100]}{X}")
+    else:
+        print(f"  cron log   {Y}empty - no scheduled run has fired yet{X}")
+
+    if age_days is not None and age_days >= STALE_DAYS:
+        print(f"\n{R}WARNING: newest backup is {age_days} days old; "
+              f"a weekly run appears to have been missed.{X}")
+    print()
+
+
+if __name__ == "__main__":
+    main()
