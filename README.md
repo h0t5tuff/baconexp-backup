@@ -19,13 +19,7 @@ cp config.env.example config.env
 chmod 600 config.env
 ```
 
-Edit `config.env` and set `CONFLUENCE_SITE`, `CONFLUENCE_EMAIL`, `BACKUP_ROOT`
-and `REQUIRE_MOUNT`. Then add the token without putting it in shell history:
-
-```bash
-read -rsp 'Paste Atlassian API token: ' T; echo
-sed -i "s|^CONFLUENCE_API_TOKEN=.*|CONFLUENCE_API_TOKEN=$T|" config.env; unset T
-```
+Edit `config.env` 
 
 Verify against one space before trusting it. Expect `render_errors=0` and
 `fetch_errors=0`:
