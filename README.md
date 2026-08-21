@@ -15,11 +15,12 @@ Weekly offline mirror of the BACoN experiment's Confluence wiki
 git clone https://github.com/h0t5tuff/baconexp-backup.git
 cd baconexp-backup
 mkdir -p state
+chmod +x baconexp-backup.py baconexp-backup-status
 cp config.env.example config.env
 chmod 600 config.env
 ```
 
-Edit `config.env` 
+Open `config.env` and put the token
 
 Verify against one space before trusting it. Expect `render_errors=0` and
 `fetch_errors=0`:
@@ -29,7 +30,7 @@ Verify against one space before trusting it. Expect `render_errors=0` and
 xdg-open /tmp/test/index.html
 ```
 
-Optional, so `backups/` reaches the data from inside the project folder:
+so `backups/` reaches the data from inside the project folder:
 
 ```bash
 ln -s "$(grep ^BACKUP_ROOT config.env | cut -d= -f2)" backups
@@ -42,19 +43,6 @@ ln -s "$(grep ^BACKUP_ROOT config.env | cut -d= -f2)" backups
 ./baconexp-backup-status             # last run, contents, next scheduled run
 xdg-open backups/latest/index.html   # read the wiki
 ```
-
-## Configuration
-
-`config.env`, mode 600. The script refuses to run if it is readable by anyone else.
-
-| Key | Meaning |
-|---|---|
-| `CONFLUENCE_SITE` | `https://baconexp.atlassian.net` |
-| `CONFLUENCE_EMAIL` | The account that logs into that site. A mismatch is the usual cause of a 401. |
-| `CONFLUENCE_API_TOKEN` | The backup captures exactly what this account can see. |
-| `BACKUP_ROOT` | Where backups are written |
-| `REQUIRE_MOUNT` | Abort unless this path is a live mountpoint. Leave blank to disable. |
-| `KEEP_ARCHIVES` | Tarballs to retain (default 12) |
 
 ## Output
 
@@ -85,16 +73,15 @@ Cron only fires if the machine is on at that moment, and does not catch up a
 missed run. `baconexp-backup-status` reports red when the newest backup is over
 8 days old. On a machine that sleeps, use a systemd timer with `Persistent=true`.
 
-## Failure modes
+## Troubleshooting
 
-Designed to fail loudly rather than produce a bad backup.
-
-| Message | Meaning |
-|---|---|
-| `FATAL: 401 Unauthorized` | Token revoked/expired, or `CONFLUENCE_EMAIL` is not the account that logs in |
-| `FATAL: ... is not mounted` | `REQUIRE_MOUNT` is not live. Prevents filling the root filesystem through an empty mountpoint. |
-| `FATAL: ... is mode 644` | `chmod 600 config.env` |
-| `FATAL: captured zero pages` | Exits non-zero rather than let a silent auth failure replace a good backup with an empty one |
+| Symptom                                   | Cause and fix                                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `./baconexp-backup.py: Permission denied` | The executable bit is missing. `chmod +x baconexp-backup.py baconexp-backup-status`. Or run it as `python3 baconexp-backup.py`. |
+| `FATAL: 401 Unauthorized`                 | Token revoked/expired, or `CONFLUENCE_EMAIL` is not the account that logs in.                                                   |
+| `FATAL: ... is not mounted`               | `REQUIRE_MOUNT` is wrong or the drive is absent. It must name the mountpoint, not the backup folder.                            |
+| `FATAL: ... is mode 644`                  | `chmod 600 config.env`                                                                                                          |
+| `FATAL: captured zero pages`              | Deliberate — a silent auth failure must not replace a good backup with an empty one.                                            |
 
 ## License
 
